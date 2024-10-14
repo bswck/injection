@@ -158,8 +158,6 @@ def injection(
     dynamic
         Whether to still trigger recreating the object in the same scope
         after successful creation. Useful as a replacement for `ContextVar` proxies.
-    stack_offset
-        How far (in frames) is the actual caller from this function's frame.
 
     """
     inj = Injection(aliases=[*aliases], factory=factory, dynamic=dynamic, once=once)
