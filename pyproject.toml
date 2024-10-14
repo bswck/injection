@@ -19,10 +19,9 @@ dev-dependencies = [
     "coverage>=7.6.3",
     "ruff==0.6.8",
     "pytest>=8.3.3",
-    "pytest-sugar>=1.0.0",
-    "pytest-subtests>=0.12.1",
     "covdefaults>=2.3.0",
     "pre-commit>=4.0.1",
+    "pytest-sugar>=1.0.0",
 ]
 
 [tool.ruff.lint]

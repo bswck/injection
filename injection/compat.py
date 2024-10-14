@@ -14,7 +14,7 @@ def get_frame(level: int = 0, remedy: str | None = None) -> FrameType:
 
     if not hasattr(sys, "_getframe"):
         msg = (
-            "`sys._getframe()` is unavailable in this"
+            "`sys._getframe()` is unavailable in this "
             f"Python implementation - {platform.python_implementation}"
         )
         if remedy:
