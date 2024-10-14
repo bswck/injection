@@ -1,6 +1,0 @@
->>> # Create a dictionary.
->>> d = {}
->>>
->>> # Insert out special key that equals "special".
->>> d[SpecialKey()] = 1
-__hash__ called
