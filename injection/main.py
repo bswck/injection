@@ -104,10 +104,7 @@ class EarlyObject(Generic[Object_co]):
         self.__state = state
         self.__debug_info = debug_info
 
-    def __inject__(
-        self,
-        key: InjectionKey,
-    ) -> None:
+    def __inject__(self, key: InjectionKey) -> None:
         scope = self.__state.scope
 
         __injection_recursive_guard__ = True  # noqa: F841
