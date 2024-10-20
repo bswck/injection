@@ -18,6 +18,10 @@ def pep567_factory(cv: ContextVar[T], scope: Locals) -> T:  # noqa: ARG001
     return cv.get()
 
 
-def pep567_injection(*aliases: str, into: Locals, cv: ContextVar[T]) -> Injection[T]:
+def pep567_injection(
+    *aliases: str,
+    cv: ContextVar[T],
+    into: Locals | None = None,
+) -> Injection[T]:
     factory = partial(pep567_factory, cv)
     return injection(*aliases, into=into, factory=factory, dynamic=True)
