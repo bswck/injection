@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass
-from threading import RLock
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from functools import partial
+from threading import RLock, get_ident
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast, overload
 
 from injection.compat import get_frame
 
@@ -12,6 +14,15 @@ if TYPE_CHECKING:
     from typing_extensions import Self, TypeAlias
 
     Locals: TypeAlias = "dict[str, Any]"
+
+
+__all__ = (
+    "EarlyObject",
+    "InjectionKey",
+    "Injection",
+    "ObjectState",
+    "injection",
+)
 
 
 Object_co = TypeVar("Object_co", covariant=True)
@@ -52,18 +63,53 @@ class InjectionKey(str):
         return self.hash
 
 
+def default_recursion_guard(early: EarlyObject[object]) -> None:
+    pass
+
+
 @dataclass
 class Injection(Generic[Object_co]):
-    aliases: list[str]
     factory: Callable[[Locals], Object_co]
     once: bool = False
     dynamic: bool = False
+    recursion_guard: Callable[[EarlyObject[Any]], object] = default_recursion_guard
+    debug_info: str | None = None
 
-    def mount(self, scope: Locals) -> None:
+    def __post_init__(self) -> None:
+        if self.debug_info is None:
+            factory, once, dynamic = (
+                self.factory,
+                self.once,
+                self.dynamic,
+            )
+            init_opts = f"{factory=!r}, {once=!r}, {dynamic=!r}"
+            include = ""
+            if debug_info := self.debug_info:
+                include = f", {debug_info}"
+            self.debug_info = f"<injection {init_opts}{include}>"
+
+    def assign_to(self, *aliases: str, scope: Locals) -> None:
+        if not aliases:
+            msg = f"expected at least one alias in Injection.assign_to() ({self!r})"
+            raise ValueError(msg)
+
         dynamic = self.dynamic
-        state = ObjectState(once=self.once, scope=scope, factory=self.factory)
-        for alias in self.aliases:
-            early = EarlyObject(alias=alias, state=state, dynamic=dynamic)
+
+        state = ObjectState(
+            once=self.once,
+            scope=scope,
+            factory=self.factory,
+            recursion_guard=self.recursion_guard,
+            debug_info=self.debug_info,
+        )
+        for alias in aliases:
+            debug_info = f"{alias!r} from {self.debug_info}"
+            early = EarlyObject(
+                alias=alias,
+                state=state,
+                dynamic=dynamic,
+                debug_info=debug_info,
+            )
             key = InjectionKey(alias, early)
             scope[key] = early
 
@@ -78,15 +124,34 @@ class ObjectState(Generic[Object_co]):
         once: bool,
         scope: Locals,
         factory: Callable[[Locals], Object_co],
+        recursion_guard: Callable[[EarlyObject[Any]], object],
+        debug_info: str | None = None,
     ) -> None:
         self.object = SENTINEL
         self.once = once
         self.factory = factory
         self.scope = scope
+        self.debug_info = debug_info
+        self.recursion_guard = recursion_guard
+        self.running: set[tuple[int, int]] = set()
 
-    def create(self, scope: Locals) -> None:
+    def __repr__(self) -> str:
+        include = ""
+        if debug_info := self.debug_info:
+            include = f" ({debug_info})"
+        return f"<ObjectState{include}>"
+
+    def create(self, scope: Locals, early: EarlyObject[Object_co]) -> None:
         if self.object is SENTINEL or not self.once:
-            self.object = self.factory(scope)
+            recursion_key = (id(early), get_ident())
+            if recursion_key in self.running:
+                self.recursion_guard(early)
+            else:
+                try:
+                    self.running.add(recursion_key)
+                    self.object = self.factory(scope)
+                finally:
+                    self.running.remove(recursion_key)
 
 
 class EarlyObject(Generic[Object_co]):
@@ -104,6 +169,10 @@ class EarlyObject(Generic[Object_co]):
         self.__state = state
         self.__debug_info = debug_info
 
+    @property
+    def __alias__(self) -> str:
+        return self.__alias
+
     def __inject__(self, key: InjectionKey) -> None:
         scope = self.__state.scope
 
@@ -113,11 +182,16 @@ class EarlyObject(Generic[Object_co]):
         # >>> req_scope = get_frame(1).f_locals
         # >>> in_child_scope = next(filter(self.__alias.__eq__, req_scope), True)
 
-        self.__state.create(scope)
+        self.__state.create(scope, self)
         obj, alias = self.__state.object, self.__alias
 
         with self.__mutex__:
-            del scope[alias]
+            with suppress(KeyError):
+                del scope[alias]
+
+            if obj is SENTINEL:
+                return
+
             scope[alias] = obj
 
             if self.__dynamic and not self.__state.once:
@@ -129,15 +203,49 @@ class EarlyObject(Generic[Object_co]):
         include = ""
         if debug_info := self.__debug_info:
             include = f" ({debug_info})"
-        return f"<early{include}>"
+        return f"<EarlyObject{include}>"
 
 
-def injection(
+def _static_factory(factory: Callable[[], Object_co], _scope: Locals) -> Object_co:
+    return factory()
+
+
+if TYPE_CHECKING:
+
+    @overload
+    def injection(
+        *aliases: str,
+        into: Locals | None = ...,
+        factory: Callable[[], Object_co],
+        pass_scope: Literal[False] = False,
+        once: bool = ...,
+        dynamic: bool = ...,
+        recursion_guard: Callable[[EarlyObject[Any]], object] = ...,
+        debug_info: str | None = None,
+    ) -> Injection[Object_co]: ...
+
+    @overload
+    def injection(
+        *aliases: str,
+        into: Locals | None = ...,
+        factory: Callable[[Locals], Object_co],
+        pass_scope: Literal[True],
+        once: bool = ...,
+        dynamic: bool = ...,
+        recursion_guard: Callable[[EarlyObject[Any]], object] = ...,
+        debug_info: str | None = None,
+    ) -> Injection[Object_co]: ...
+
+
+def injection(  # noqa: PLR0913
     *aliases: str,
     into: Locals | None = None,
-    factory: Callable[[Locals], Object_co],
+    factory: Callable[[], Object_co] | Callable[[Locals], Object_co],
+    pass_scope: bool = False,
     once: bool = False,
     dynamic: bool = False,
+    recursion_guard: Callable[[EarlyObject[Any]], object] = default_recursion_guard,
+    debug_info: str | None = None,
 ) -> Injection[Object_co]:
     """
     Create an injection.
@@ -145,19 +253,35 @@ def injection(
     Parameters
     ----------
     *aliases
-        Aliases to the injection. Must be valid Python identifiers.
+        Aliases to the injection. They generally should be valid Python identifiers,
+        but in special cases don't have to.
     into
         The local scope to inject into.
     factory
         A callable that creates the injected object.
+    pass_scope
+        Whether the factory should be passed an argument (i.e. the target scope).
     once
         Whether to only create the object once and reuse it everywhere.
     dynamic
         Whether to still trigger recreating the object in the same scope
         after successful creation. Useful as a replacement for `ContextVar` proxies.
+    recursion_guard
+        The function to call on recursion error. It does _not_ create a value.
+        It has to take accept one argument, i.e. the early object.
+    debug_info
+        Debug information for more informative representations.
 
     """
-    inj = Injection(aliases=[*aliases], factory=factory, dynamic=dynamic, once=once)
-    if into is not None:
-        inj.mount(into)
+    if not pass_scope:
+        factory = partial(_static_factory, factory)  # type: ignore[arg-type]
+    inj = Injection(
+        factory=cast("Callable[[Locals], Object_co]", factory),
+        dynamic=dynamic,
+        once=once,
+        recursion_guard=recursion_guard,
+        debug_info=debug_info,
+    )
+    if into is not None and aliases:
+        inj.assign_to(*aliases, scope=into)
     return inj
