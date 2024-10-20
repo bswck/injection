@@ -1,0 +1,38 @@
+on:
+  push:
+    branches:
+    -  main
+  pull_request:
+
+env:
+  FORCE_COLOR: 1
+  PY_COLORS: 1
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  qa:
+    if: ${{ github.actor != 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+    steps:
+    - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938
+    - uses: astral-sh/setup-uv@023eb7875fa1caa15814da58d1df7350f8fb1fd9
+      with:
+        enable-cache: true
+    - name: Install
+      run: uv sync --frozen --python ${{matrix.version}}
+    - name: Lint
+      if: ${{ !cancelled() }}
+      run: uv run --frozen ruff check .
+    - name: Check type safety
+      if: ${{ !cancelled() }}
+      run: uv run --frozen mypy .
+    - name: Run tests
+      if: ${{ !cancelled() }}
+      run: uv run --frozen pytest -svv
