@@ -8,6 +8,9 @@ if TYPE_CHECKING:
     from types import FrameType
 
 
+__all__ = ("get_frame",)
+
+
 def get_frame(level: int = 0, remedy: str | None = None) -> FrameType:
     """Attempt to get a frame from the interpreter stack."""
     level += 1  # This frame.
