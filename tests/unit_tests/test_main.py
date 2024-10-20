@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import threading
 from collections import Counter
-from typing import Any
 
 import pytest
 
@@ -12,7 +11,7 @@ from injection import injection
 def test_injection_basic() -> None:
     """Test basic injection functionality."""
     scope: dict[str, str] = {}
-    factory_called: bool = False
+    factory_called = False
 
     def factory() -> str:
         nonlocal factory_called
@@ -33,9 +32,9 @@ def test_injection_basic() -> None:
 def test_injection_with_pass_scope() -> None:
     """Test injection when the factory requires the scope."""
     scope: dict[str, str] = {}
-    factory_called: bool = False
+    factory_called = False
 
-    def factory(scope: dict[str, Any]) -> str:
+    def factory(scope: dict[str, str]) -> str:
         nonlocal factory_called
         factory_called = True
         return f"injected_object_with_scope_{len(scope)}"
@@ -70,7 +69,7 @@ def test_injection_once_true() -> None:
 
 def test_injection_once_false() -> None:
     """Test that 'once=False' allows object creation per access if dynamic=True."""
-    scope: dict[str, Any] = {}
+    scope: dict[str, str] = {}
     call_count: int = 0
 
     def factory() -> str:
@@ -89,7 +88,7 @@ def test_injection_once_false() -> None:
 
 def test_injection_dynamic_true() -> None:
     """Test that 'dynamic=True' allows re-injection."""
-    scope: dict[str, Any] = {}
+    scope: dict[str, str] = {}
     call_count = 0
     call_count_expected = 2
 
