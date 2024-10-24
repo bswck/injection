@@ -5,7 +5,7 @@ from collections import Counter
 
 import pytest
 
-from injection import injection
+from injection import Injection, inject
 
 
 def test_injection_basic() -> None:
@@ -18,7 +18,7 @@ def test_injection_basic() -> None:
         factory_called = True
         return "injected_object"
 
-    injection("my_alias", into=scope, factory=factory)
+    inject("my_alias", into=scope, factory=factory)
 
     assert not factory_called
     obj = scope["my_alias"]
@@ -39,7 +39,7 @@ def test_injection_with_pass_scope() -> None:
         factory_called = True
         return f"injected_object_with_scope_{len(scope)}"
 
-    injection("my_alias", into=scope, factory=factory, pass_scope=True)
+    inject("my_alias", into=scope, factory=factory, pass_scope=True)
 
     assert not factory_called
     obj: str = scope["my_alias"]
@@ -58,7 +58,7 @@ def test_injection_multiple_aliases() -> None:
         factory_called = True
         return "injected_object"
 
-    inj = injection(factory=factory)
+    inj = Injection(factory=factory)
     inj.assign_to("alias1", "alias2", scope=scope)
 
     obj1 = scope["alias1"]
@@ -80,7 +80,7 @@ def test_injection_different_scopes() -> None:
         call_count += 1
         return f"injected_object_{call_count}"
 
-    inj = injection(factory=factory, cache=False, cache_per_alias=False)
+    inj = Injection(factory=factory, cache=False, cache_per_alias=False)
 
     scope1: dict[str, str] = {}
     scope2: dict[str, str] = {}
@@ -113,7 +113,7 @@ def test_injection_thread_safety() -> None:
     num_threads: int = 3
     barrier = threading.Barrier(num_threads)
 
-    injection("my_alias", into=scope, factory=factory, cache=True)
+    inject("my_alias", into=scope, factory=factory, cache=True)
 
     def access() -> None:
         barrier.wait()
@@ -147,7 +147,7 @@ def test_injection_with_multiple_threads_and_once_false() -> None:
     num_threads = 10
     barrier = threading.Barrier(num_threads)
 
-    injection("my_alias", into=scope, factory=factory, cache=False)
+    inject("my_alias", into=scope, factory=factory, cache=False)
 
     def access() -> None:
         barrier.wait()
@@ -176,7 +176,7 @@ def test_injection_without_assigning() -> None:
         call_count += 1
         return f"injected_object_{call_count}"
 
-    inj = injection(factory=factory)
+    inj = Injection(factory=factory)
 
     scope: dict[str, str] = {}
 
@@ -198,7 +198,7 @@ def test_injection_factory_exception() -> None:
         msg = "Factory error"
         raise ValueError(msg)
 
-    injection("my_alias", into=scope, factory=factory)
+    inject("my_alias", into=scope, factory=factory)
 
     with pytest.raises(ValueError, match="Factory error"):
         scope["my_alias"]
@@ -211,7 +211,7 @@ def test_injection_recursive_guard() -> None:
     def factory() -> str:
         return scope.get("my_alias", "default_value")
 
-    injection("my_alias", into=scope, factory=factory)
+    inject("my_alias", into=scope, factory=factory)
 
     obj = scope["my_alias"]
     assert obj == "default_value"
@@ -224,6 +224,6 @@ def test_injection_with_no_aliases() -> None:
     def factory() -> str:
         return "injected_object"
 
-    inj = injection(factory=factory)
+    inj = Injection(factory=factory)
     with pytest.raises(ValueError, match="expected at least one alias"):
         inj.assign_to(scope=scope)

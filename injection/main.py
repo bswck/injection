@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from contextlib import suppress
 from dataclasses import dataclass
-from functools import partial
 from threading import RLock, get_ident
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, overload
 
 from injection.compat import get_frame
 
@@ -21,7 +20,7 @@ __all__ = (
     "InjectionKey",
     "Injection",
     "ObjectState",
-    "injection",
+    "inject",
 )
 
 
@@ -70,11 +69,17 @@ def default_recursion_guard(early: EarlyObject[object]) -> Never:
 
 @dataclass
 class Injection(Generic[Object_co]):
-    factory: Callable[[Locals], Object_co]
+    factory: Callable[..., Object_co]
+    pass_scope: bool = False
     cache: bool = False
     cache_per_alias: bool = False
     recursion_guard: Callable[[EarlyObject[Any]], object] = default_recursion_guard
     debug_info: str | None = None
+
+    def _call_factory(self, scope: Locals) -> Object_co:
+        if self.pass_scope:
+            return self.factory(scope)
+        return self.factory()
 
     def __post_init__(self) -> None:
         if self.debug_info is None:
@@ -94,15 +99,16 @@ class Injection(Generic[Object_co]):
             msg = f"expected at least one alias in Injection.assign_to() ({self!r})"
             raise ValueError(msg)
 
-        cache_per_alias = self.cache_per_alias
-
         state = ObjectState(
             cache=self.cache,
-            scope=scope,
-            factory=self.factory,
+            factory=self._call_factory,
             recursion_guard=self.recursion_guard,
             debug_info=self.debug_info,
+            scope=scope,
         )
+
+        cache_per_alias = self.cache_per_alias
+
         for alias in aliases:
             debug_info = f"{alias!r} from {self.debug_info}"
             early = EarlyObject(
@@ -207,14 +213,10 @@ class EarlyObject(Generic[Object_co]):
         return f"<EarlyObject{include}>"
 
 
-def _static_factory(factory: Callable[[], Object_co], _scope: Locals) -> Object_co:
-    return factory()
-
-
 if TYPE_CHECKING:
 
     @overload
-    def injection(
+    def inject(
         *aliases: str,
         into: Locals | None = ...,
         factory: Callable[[], Object_co],
@@ -223,10 +225,10 @@ if TYPE_CHECKING:
         cache_per_alias: bool = ...,
         recursion_guard: Callable[[EarlyObject[Any]], object] = ...,
         debug_info: str | None = None,
-    ) -> Injection[Object_co]: ...
+    ) -> None: ...
 
     @overload
-    def injection(
+    def inject(
         *aliases: str,
         into: Locals | None = ...,
         factory: Callable[[Locals], Object_co],
@@ -235,10 +237,10 @@ if TYPE_CHECKING:
         cache_per_alias: bool = ...,
         recursion_guard: Callable[[EarlyObject[Any]], object] = ...,
         debug_info: str | None = None,
-    ) -> Injection[Object_co]: ...
+    ) -> None: ...
 
 
-def injection(  # noqa: PLR0913
+def inject(  # noqa: PLR0913
     *aliases: str,
     into: Locals | None = None,
     factory: Callable[[], Object_co] | Callable[[Locals], Object_co],
@@ -247,7 +249,7 @@ def injection(  # noqa: PLR0913
     cache_per_alias: bool = False,
     recursion_guard: Callable[[EarlyObject[Any]], object] = default_recursion_guard,
     debug_info: str | None = None,
-) -> Injection[Object_co]:
+) -> None:
     """
     Create an injection.
 
@@ -275,10 +277,9 @@ def injection(  # noqa: PLR0913
         Debug information for more informative representations.
 
     """
-    if not pass_scope:
-        factory = partial(_static_factory, factory)  # type: ignore[arg-type]
     inj = Injection(
-        factory=cast("Callable[[Locals], Object_co]", factory),
+        factory=factory,
+        pass_scope=pass_scope,
         cache_per_alias=cache_per_alias,
         cache=cache,
         recursion_guard=recursion_guard,
@@ -286,4 +287,3 @@ def injection(  # noqa: PLR0913
     )
     if into is not None and aliases:
         inj.assign_to(*aliases, scope=into)
-    return inj

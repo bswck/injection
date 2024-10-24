@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from injection.main import injection
+from injection.main import inject
 
 if TYPE_CHECKING:
     from contextvars import ContextVar
@@ -18,4 +18,4 @@ def pep567_injection(
     cv: ContextVar[T],
     into: Locals | None = None,
 ) -> Injection[T]:
-    return injection(*aliases, into=into, factory=cv.get, cache_per_alias=True)
+    return inject(*aliases, into=into, factory=cv.get, cache_per_alias=True)
