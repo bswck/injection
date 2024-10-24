@@ -212,7 +212,10 @@ def test_injection_recursive_guard() -> None:
         return scope.get("my_alias", "default_value")
 
     inject(
-        "my_alias", into=scope, factory=factory, recursion_guard=lenient_recursion_guard
+        "my_alias",
+        into=scope,
+        factory=factory,
+        recursion_guard=lenient_recursion_guard,
     )
 
     obj = scope["my_alias"]
