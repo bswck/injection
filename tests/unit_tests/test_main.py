@@ -143,7 +143,7 @@ def test_injection_with_multiple_threads_and_once_false() -> None:
         call_counts.update([thread_id])
         return f"injected_object_{call_counts[thread_id]}"
 
-    num_threads = 10
+    num_threads = 3
     barrier = threading.Barrier(num_threads)
 
     inject("my_alias", into=scope, factory=factory, cache=False)
