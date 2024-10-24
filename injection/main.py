@@ -64,7 +64,7 @@ class InjectionKey(str):
         return self.hash
 
 
-def lenient_recursion_guard(early: EarlyObject[object]) -> Never:
+def lenient_recursion_guard(early: EarlyObject[object]) -> None:
     pass
 
 
