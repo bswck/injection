@@ -5,7 +5,7 @@ from collections import Counter
 
 import pytest
 
-from injection import Injection, inject
+from injection import Injection, inject, lenient_recursion_guard
 
 
 def test_injection_basic() -> None:
@@ -211,10 +211,17 @@ def test_injection_recursive_guard() -> None:
     def factory() -> str:
         return scope.get("my_alias", "default_value")
 
-    inject("my_alias", into=scope, factory=factory)
+    inject(
+        "my_alias", into=scope, factory=factory, recursion_guard=lenient_recursion_guard
+    )
 
     obj = scope["my_alias"]
     assert obj == "default_value"
+
+    inject("my_alias", into=scope, factory=factory)  # strict
+
+    with pytest.raises(RecursionError, match="requested itself"):
+        obj = scope["my_alias"]
 
 
 def test_injection_with_no_aliases() -> None:

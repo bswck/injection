@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from contextlib import suppress
 from dataclasses import dataclass
-from threading import RLock, get_ident
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, overload
+from threading import Lock, RLock, get_ident
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, TypeVar, overload
 
 from injection.compat import get_frame
 
@@ -21,6 +21,8 @@ __all__ = (
     "Injection",
     "ObjectState",
     "inject",
+    "lenient_recursion_guard",
+    "strict_recursion_guard",
 )
 
 
@@ -62,7 +64,11 @@ class InjectionKey(str):
         return self.hash
 
 
-def default_recursion_guard(early: EarlyObject[object]) -> Never:
+def lenient_recursion_guard(early: EarlyObject[object]) -> Never:
+    pass
+
+
+def strict_recursion_guard(early: EarlyObject[object]) -> Never:
     msg = f"{early} requested itself"
     raise RecursionError(msg)
 
@@ -73,8 +79,10 @@ class Injection(Generic[Object_co]):
     pass_scope: bool = False
     cache: bool = False
     cache_per_alias: bool = False
-    recursion_guard: Callable[[EarlyObject[Any]], object] = default_recursion_guard
+    recursion_guard: Callable[[EarlyObject[Any]], object] = lenient_recursion_guard
     debug_info: str | None = None
+
+    _reassignment_lock: ClassVar[Lock] = Lock()
 
     def _call_factory(self, scope: Locals) -> Object_co:
         if self.pass_scope:
@@ -118,7 +126,10 @@ class Injection(Generic[Object_co]):
                 debug_info=debug_info,
             )
             key = InjectionKey(alias, early)
-            scope[key] = early
+
+            with self._reassignment_lock:
+                scope.pop(key, None)
+                scope[key] = early
 
 
 SENTINEL = object()
@@ -247,7 +258,7 @@ def inject(  # noqa: PLR0913
     pass_scope: bool = False,
     cache: bool = False,
     cache_per_alias: bool = False,
-    recursion_guard: Callable[[EarlyObject[Any]], object] = default_recursion_guard,
+    recursion_guard: Callable[[EarlyObject[Any]], object] = strict_recursion_guard,
     debug_info: str | None = None,
 ) -> None:
     """
