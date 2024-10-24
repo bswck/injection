@@ -32,9 +32,9 @@ Object_co = TypeVar("Object_co", covariant=True)
 class InjectionKey(str):
     __slots__ = ("origin", "hash", "reset", "early")
 
-    def __init__(self, key: str, early: EarlyObject[object]) -> None:
-        self.origin = key
-        self.hash = hash(key)
+    def __init__(self, alias: str, early: EarlyObject[object]) -> None:
+        self.origin = alias
+        self.hash = hash(alias)
         self.reset = False
         self.early = early
 
@@ -56,7 +56,7 @@ class InjectionKey(str):
 
         with self.early.__mutex__:
             __injection_recursive_guard__ = True  # noqa: F841
-            self.early.__inject__(self)
+            self.early.__inject__()
 
         return True
 
@@ -125,7 +125,7 @@ class Injection(Generic[Object_co]):
                 cache_per_alias=cache_per_alias,
                 debug_info=debug_info,
             )
-            key = InjectionKey(alias, early)
+            key = early.__key__
 
             with self._reassignment_lock:
                 scope.pop(key, None)
@@ -159,7 +159,7 @@ class ObjectState(Generic[Object_co]):
             include = f" ({debug_info})"
         return f"<ObjectState{include}>"
 
-    def create(self, scope: Locals, early: EarlyObject[Object_co]) -> None:
+    def create(self, early: EarlyObject[Object_co]) -> None:
         if self.object is SENTINEL or not self.cache:
             recursion_key = (id(early), get_ident())
             if recursion_key in self.running:
@@ -167,7 +167,7 @@ class ObjectState(Generic[Object_co]):
             else:
                 try:
                     self.running.add(recursion_key)
-                    self.object = self.factory(scope)
+                    self.object = self.factory(self.scope)
                 finally:
                     self.running.remove(recursion_key)
 
@@ -181,27 +181,23 @@ class EarlyObject(Generic[Object_co]):
         cache_per_alias: bool,
         debug_info: str | None = None,
     ) -> None:
+        self.__alias__ = alias
         self.__mutex__ = RLock()
         self.__cache_per_alias = cache_per_alias
-        self.__alias = alias
         self.__state = state
         self.__debug_info = debug_info
+        self.__key__ = InjectionKey(alias, self)
 
-    @property
-    def __alias__(self) -> str:
-        return self.__alias
-
-    def __inject__(self, key: InjectionKey) -> None:
-        scope = self.__state.scope
-
-        __injection_recursive_guard__ = True  # noqa: F841
-
+    def __inject__(self) -> None:
         # To ever know if we're in a child scope, try:
         # >>> req_scope = get_frame(1).f_locals
         # >>> in_child_scope = next(filter(self.__alias.__eq__, req_scope), True)
 
-        self.__state.create(scope, self)
-        obj, alias = self.__state.object, self.__alias
+        __injection_recursive_guard__ = True  # noqa: F841
+        key, alias, scope = (self.__key__, self.__alias__, self.__state.scope)
+
+        self.__state.create(self)
+        obj = self.__state.object
 
         with self.__mutex__:
             with suppress(KeyError):
@@ -218,9 +214,10 @@ class EarlyObject(Generic[Object_co]):
                 scope[key] = obj
 
     def __repr__(self) -> str:
-        include = ""
+        hint = "before __inject__()"
+        include = f" ({hint})"
         if debug_info := self.__debug_info:
-            include = f" ({debug_info})"
+            include = f" ({debug_info} {hint})"
         return f"<EarlyObject{include}>"
 
 
