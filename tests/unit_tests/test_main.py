@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import threading
 from collections import Counter
+from itertools import product
+from operator import methodcaller
 
 import pytest
 
@@ -124,11 +126,8 @@ def test_injection_thread_safety() -> None:
         threading.Thread(target=access) for _ in range(num_threads)
     ]
 
-    for thread in threads:
-        thread.start()
-
-    for thread in threads:
-        thread.join()
+    for cb, thread in product(map(methodcaller, ("start", "join")), threads):
+        cb(thread)
 
     assert sum(call_counts.values()) == 1
 
@@ -158,11 +157,8 @@ def test_injection_with_multiple_threads_and_once_false() -> None:
         threading.Thread(target=access) for _ in range(num_threads)
     ]
 
-    for thread in threads:
-        thread.start()
-
-    for thread in threads:
-        thread.join()
+    for cb, thread in product(map(methodcaller, ("start", "join")), threads):
+        cb(thread)
 
     assert set(call_counts.values()) == {1}
 
