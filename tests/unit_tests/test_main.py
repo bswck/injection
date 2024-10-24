@@ -48,64 +48,6 @@ def test_injection_with_pass_scope() -> None:
     assert obj == f"injected_object_with_scope_{len(scope)}"
 
 
-def test_injection_once_true() -> None:
-    """Test that 'once=True' causes the object to be created only once."""
-    scope: dict[str, str] = {}
-    call_count: int = 0
-
-    def factory() -> str:
-        nonlocal call_count
-        call_count += 1
-        return f"injected_object_{call_count}"
-
-    injection("my_alias", into=scope, factory=factory, once=True)
-
-    obj1 = scope["my_alias"]
-    obj2 = scope["my_alias"]
-
-    assert call_count == 1
-    assert obj1 == obj2
-
-
-def test_injection_once_false() -> None:
-    """Test that 'once=False' allows object creation per access if dynamic=True."""
-    scope: dict[str, str] = {}
-    call_count: int = 0
-
-    def factory() -> str:
-        nonlocal call_count
-        call_count += 1
-        return f"injected_object_{call_count}"
-
-    injection("my_alias", into=scope, factory=factory, once=False)
-
-    obj1: str = scope["my_alias"]
-    obj2: str = scope["my_alias"]
-
-    assert call_count == 1
-    assert obj1 == obj2
-
-
-def test_injection_dynamic_true() -> None:
-    """Test that 'dynamic=True' allows re-injection."""
-    scope: dict[str, str] = {}
-    call_count = 0
-    call_count_expected = 2
-
-    def factory() -> str:
-        nonlocal call_count
-        call_count += 1
-        return f"injected_object_{call_count}"
-
-    injection("my_alias", into=scope, factory=factory, once=False, dynamic=True)
-
-    obj1: str = scope["my_alias"]
-    obj2: str = scope["my_alias"]
-
-    assert call_count == call_count_expected
-    assert obj1 != obj2
-
-
 def test_injection_multiple_aliases() -> None:
     """Test injection with multiple aliases."""
     scope: dict[str, str] = {}
@@ -138,7 +80,7 @@ def test_injection_different_scopes() -> None:
         call_count += 1
         return f"injected_object_{call_count}"
 
-    inj = injection(factory=factory, once=False, dynamic=False)
+    inj = injection(factory=factory, cache=False, cache_per_alias=False)
 
     scope1: dict[str, str] = {}
     scope2: dict[str, str] = {}
@@ -159,7 +101,7 @@ def test_injection_different_scopes() -> None:
 
 
 def test_injection_thread_safety() -> None:
-    """Test that injection is thread-safe with 'once=True'."""
+    """Test that injection is thread-safe with 'cache=True'."""
     scope: dict[str, str] = {}
 
     call_counts: Counter[int] = Counter()
@@ -171,7 +113,7 @@ def test_injection_thread_safety() -> None:
     num_threads: int = 3
     barrier = threading.Barrier(num_threads)
 
-    injection("my_alias", into=scope, factory=factory, once=True)
+    injection("my_alias", into=scope, factory=factory, cache=True)
 
     def access() -> None:
         barrier.wait()
@@ -205,7 +147,7 @@ def test_injection_with_multiple_threads_and_once_false() -> None:
     num_threads = 10
     barrier = threading.Barrier(num_threads)
 
-    injection("my_alias", into=scope, factory=factory, once=False)
+    injection("my_alias", into=scope, factory=factory, cache=False)
 
     def access() -> None:
         barrier.wait()

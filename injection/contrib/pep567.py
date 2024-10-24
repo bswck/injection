@@ -18,4 +18,4 @@ def pep567_injection(
     cv: ContextVar[T],
     into: Locals | None = None,
 ) -> Injection[T]:
-    return injection(*aliases, into=into, factory=cv.get, dynamic=True)
+    return injection(*aliases, into=into, factory=cv.get, cache_per_alias=True)
