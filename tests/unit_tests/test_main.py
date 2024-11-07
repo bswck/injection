@@ -191,12 +191,12 @@ def test_injection_factory_exception() -> None:
     scope: dict[str, str] = {}
 
     def factory() -> str:
-        msg = "Factory error"
+        msg = "factory error"
         raise ValueError(msg)
 
     inject("my_alias", into=scope, factory=factory)
 
-    with pytest.raises(ValueError, match="Factory error"):
+    with pytest.raises(ValueError, match="factory error"):
         scope["my_alias"]
 
 

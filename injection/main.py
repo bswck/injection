@@ -229,7 +229,7 @@ class EarlyObject(Generic[Object_co]):
         self.__alias__ = alias
         self.__mutex__ = RLock()
         self.__cache_per_alias = cache_per_alias
-        self.__state = state
+        self.__state__ = state
         self.__debug_info = debug_info
         self.__key__ = InjectionKey(alias, self)
 
@@ -239,10 +239,10 @@ class EarlyObject(Generic[Object_co]):
         # >>> in_child_scope = next(filter(self.__alias.__eq__, req_scope), True)
 
         __injection_recursive_guard__ = True  # noqa: F841
-        key, alias, scope = (self.__key__, self.__alias__, self.__state.scope)
+        key, alias, scope = (self.__key__, self.__alias__, self.__state__.scope)
 
-        self.__state.create(self)
-        obj = self.__state.object
+        self.__state__.create(self)
+        obj = self.__state__.object
 
         with self.__mutex__:
             with suppress(KeyError):
@@ -373,7 +373,7 @@ def peek_or_inject(  # noqa: PLR0913
     with PEEK_MUTEX:
         metadata = peek(scope, alias)
         if metadata is None:
-            return next(
+            metadata = next(
                 iter(
                     Injection(
                         actual_factory=metafactory(),
