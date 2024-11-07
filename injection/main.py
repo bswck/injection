@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 from contextlib import suppress
+from contextvars import ContextVar, copy_context
 from dataclasses import dataclass
 from threading import Lock, RLock, get_ident
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, TypeVar, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Generic,
+    Literal,
+    TypeVar,
+    cast,
+    overload,
+)
+from weakref import WeakSet
 
 from injection.compat import get_frame
 
@@ -28,6 +39,10 @@ __all__ = (
 
 Object_co = TypeVar("Object_co", covariant=True)
 
+PEEK_MUTEX = RLock()
+peeking_var: ContextVar[bool] = ContextVar("peeking", default=False)
+peeked_early_var: ContextVar[EarlyObject[Any]] = ContextVar("peeked_early")
+
 
 class InjectionKey(str):
     __slots__ = ("origin", "hash", "reset", "early")
@@ -49,9 +64,17 @@ class InjectionKey(str):
             self.reset = False
             return True
 
-        caller_locals = get_frame(1).f_locals
+        try:
+            caller_locals = get_frame(1).f_locals
+        except ValueError:
+            # can happen if we patch sys
+            return True
 
         if caller_locals.get("__injection_recursive_guard__"):
+            return True
+
+        if peeking_var.get():
+            peeked_early_var.set(self.early)
             return True
 
         with self.early.__mutex__:
@@ -73,9 +96,20 @@ def strict_recursion_guard(early: EarlyObject[object]) -> Never:
     raise RecursionError(msg)
 
 
+@dataclass(frozen=True)
+class InjectionFactoryWrapper(Generic[Object_co]):
+    actual_factory: Any
+    pass_scope: bool
+
+    def __call__(self, scope: Locals) -> Object_co:
+        if self.pass_scope:
+            return cast("Object_co", self.actual_factory(scope))
+        return cast("Object_co", self.actual_factory())
+
+
 @dataclass
 class Injection(Generic[Object_co]):
-    factory: Callable[..., Object_co]
+    actual_factory: Callable[..., Object_co]
     pass_scope: bool = False
     cache: bool = False
     cache_per_alias: bool = False
@@ -84,32 +118,38 @@ class Injection(Generic[Object_co]):
 
     _reassignment_lock: ClassVar[Lock] = Lock()
 
-    def _call_factory(self, scope: Locals) -> Object_co:
-        if self.pass_scope:
-            return self.factory(scope)
-        return self.factory()
+    @property
+    def factory(self) -> InjectionFactoryWrapper[Object_co]:
+        return InjectionFactoryWrapper(
+            actual_factory=self.actual_factory,
+            pass_scope=self.pass_scope,
+        )
 
     def __post_init__(self) -> None:
         if self.debug_info is None:
-            factory, cache, cache_per_alias = (
-                self.factory,
+            actual_factory, cache, cache_per_alias = (
+                self.actual_factory,
                 self.cache,
                 self.cache_per_alias,
             )
-            init_opts = f"{factory=!r}, {cache=!r}, {cache_per_alias=!r}"
+            init_opts = f"{actual_factory=!r}, {cache=!r}, {cache_per_alias=!r}"
             include = ""
             if debug_info := self.debug_info:
                 include = f", {debug_info}"
             self.debug_info = f"<injection {init_opts}{include}>"
 
-    def assign_to(self, *aliases: str, scope: Locals) -> None:
+    def assign_to(
+        self,
+        *aliases: str,
+        scope: Locals,
+    ) -> WeakSet[EarlyObject[Object_co]]:
         if not aliases:
             msg = f"expected at least one alias in Injection.assign_to() ({self!r})"
             raise ValueError(msg)
 
-        state = ObjectState(
+        state: ObjectState[Object_co] = ObjectState(
             cache=self.cache,
-            factory=self._call_factory,
+            factory=self.factory,
             recursion_guard=self.recursion_guard,
             debug_info=self.debug_info,
             scope=scope,
@@ -117,19 +157,24 @@ class Injection(Generic[Object_co]):
 
         cache_per_alias = self.cache_per_alias
 
+        early_objects: WeakSet[EarlyObject[Object_co]] = WeakSet()
+
         for alias in aliases:
             debug_info = f"{alias!r} from {self.debug_info}"
-            early = EarlyObject(
+            early_object = EarlyObject(
                 alias=alias,
                 state=state,
                 cache_per_alias=cache_per_alias,
                 debug_info=debug_info,
             )
-            key = early.__key__
+            early_objects.add(early_object)
+            key = early_object.__key__
 
             with self._reassignment_lock:
                 scope.pop(key, None)
-                scope[key] = early
+                scope[key] = early_object
+
+        return early_objects
 
 
 SENTINEL = object()
@@ -286,7 +331,7 @@ def inject(  # noqa: PLR0913
 
     """
     inj = Injection(
-        factory=factory,
+        actual_factory=factory,
         pass_scope=pass_scope,
         cache_per_alias=cache_per_alias,
         cache=cache,
@@ -295,3 +340,49 @@ def inject(  # noqa: PLR0913
     )
     if into is not None and aliases:
         inj.assign_to(*aliases, scope=into)
+
+
+def peek(scope: Locals, alias: str) -> EarlyObject[Any] | None:
+    """Safely get early object from a scope without triggering injection behavior."""
+    peeking_context = copy_context()
+    peeking_context.run(peeking_var.set, True)  # noqa: FBT003
+    with suppress(KeyError):
+        peeking_context.run(scope.__getitem__, alias)
+    return peeking_context.get(peeked_early_var)
+
+
+def peek_or_inject(  # noqa: PLR0913
+    scope: Locals,
+    alias: str,
+    *,
+    factory: Callable[[], Object_co] | Callable[[Locals], Object_co],
+    pass_scope: bool = False,
+    cache: bool = False,
+    cache_per_alias: bool = False,
+    recursion_guard: Callable[[EarlyObject[Any]], object] = strict_recursion_guard,
+    debug_info: str | None = None,
+) -> EarlyObject[Object_co]:
+    """
+    Peek or inject as necessary in a thread-safe manner.
+
+    If an injection is present, return the existing early object.
+    If it is not present, create a new injection, inject it and return an early object.
+
+    This function works only for one alias at a time.
+    """
+    with PEEK_MUTEX:
+        metadata = peek(scope, alias)
+        if metadata is None:
+            return next(
+                iter(
+                    Injection(
+                        actual_factory=factory,
+                        pass_scope=pass_scope,
+                        cache=cache,
+                        cache_per_alias=cache_per_alias,
+                        recursion_guard=recursion_guard,
+                        debug_info=debug_info,
+                    ).assign_to(alias, scope=scope)
+                )
+            )
+        return metadata

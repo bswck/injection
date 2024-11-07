@@ -3,30 +3,40 @@
 from __future__ import annotations
 
 import sys
-import types
-from collections.abc import Callable
-from contextlib import suppress
+from collections.abc import Generator
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
+from copy import copy
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypedDict, overload
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, overload
+
+from injection.main import peek_or_inject
 
 if TYPE_CHECKING:
-    from _typeshed.importlib import MetaPathFinderProtocol, PathEntryFinderProtocol
-    from typing_extensions import Never, TypeVar
+    from typing_extensions import TypeAlias
 
     from injection.main import Injection
 
 
-T = TypeVar("T", default=None)
+T = TypeVar("T")
 Obj = TypeVar("Obj")
+InjectedAttributeStash: TypeAlias = "dict[Injection[Obj], T]"
 
 
-class SysActions(Enum):
+class StateActionType(Enum):
     PERSIST = auto()
+    """Copy state visible now and expose it to the original thread on future request."""
+
     FUTURE = auto()
+    """
+    Allow the state to evolve naturally at runtime.
+
+    Rely on that future version of the state when it's requested.
+    """
+
     CONSTANT = auto()
-    SPECIFIED = auto()
+    """Define one state forever (like PERSIST, but with custom value)."""
 
 
 class StateAction(Generic[T]):
@@ -35,61 +45,75 @@ class StateAction(Generic[T]):
         @overload
         def __init__(
             self,
-            action: Literal[SysActions.PERSIST, SysActions.FUTURE],
+            action_type: Literal[StateActionType.PERSIST, StateActionType.FUTURE],
             data: None = None,
         ) -> None: ...
 
         @overload
         def __init__(
             self,
-            action: Literal[SysActions.CONSTANT],
+            action_type: Literal[StateActionType.CONSTANT],
             data: T,
         ) -> None: ...
 
-    def __init__(self, action: SysActions, data: T | None = None) -> None:
-        self.action = action
+    def __init__(
+        self,
+        action_type: StateActionType,
+        data: T | None = None,
+    ) -> None:
+        self.action_type = action_type
         self.data = data
 
 
-PERSIST: StateAction = StateAction(SysActions.PERSIST)
-FUTURE: StateAction = StateAction(SysActions.FUTURE)
+PERSIST: StateAction[None] = StateAction(StateActionType.PERSIST)
+FUTURE: StateAction[None] = StateAction(StateActionType.FUTURE)
 
 
 injection_var: ContextVar[Injection[Any]] = ContextVar("injection")
 
 
-class AttributeMappings(TypedDict, Generic[Obj]):
-    path: dict[Injection[Obj], list[str]]
-    path_hooks: dict[Injection[Obj], list[Callable[[str], PathEntryFinderProtocol]]]
-    meta_path: dict[Injection[Obj], list[MetaPathFinderProtocol]]
-
-
 @dataclass
-class _LazyImportsSys(types.ModuleType, Generic[Obj]):
-    attribute_mappings: AttributeMappings[Obj]
+class SysAttributeGetter:
+    attribute_name: str
+    mainstream_value: Any
+    stash: InjectedAttributeStash[Injection[Any], Any]
 
-    def __getattr__(self, name: str) -> Any:
+    def __call__(self) -> Any:
         with suppress(LookupError):
             injection = injection_var.get()
-            mapping = self.attribute_mappings[name]  # type: ignore[literal-required]
+            mapping = self.stash[injection]
             return mapping[injection]
-        return getattr(sys, name)
+        return self.mainstream_value
 
 
-@dataclass
-class LazyImportBuiltin:
-    def __call__(self, *args: Any, **kwds: Any) -> Any:
-        pass
-
-
+@contextmanager
 def lazy_imports(
     *,
-    sys_path: StateAction = PERSIST,
-    sys_meta_path: StateAction = PERSIST,
-    sys_path_hooks: StateAction = PERSIST,
-) -> None:
-    pass
+    sys_path: StateAction[Any] = PERSIST,
+    sys_meta_path: StateAction[Any] = PERSIST,
+    sys_path_hooks: StateAction[Any] = PERSIST,
+) -> Generator[None]:
+    stash: dict[Injection[Any], Any] = {}
 
+    for attribute_name, action in (
+        ("path", sys_path),
+        ("meta_path", sys_meta_path),
+        ("path_hooks", sys_path_hooks),
+    ):
+        mainstream_value = getattr(sys, attribute_name)
+        if action.action_type is StateActionType.PERSIST:
+            action.data = copy(mainstream_value)
+            action.action_type = StateActionType.CONSTANT
 
-def type_imports() -> Never:
-    raise NotImplementedError
+        peek_or_inject(
+            vars(sys),
+            attribute_name,
+            factory=SysAttributeGetter(
+                attribute_name=attribute_name,
+                mainstream_value=mainstream_value,
+                stash=stash,
+            ),
+        )
+        vars(sys)[attribute_name]
+
+    yield
