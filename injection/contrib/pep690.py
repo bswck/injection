@@ -108,9 +108,9 @@ def lazy_imports(
         peek_or_inject(
             vars(sys),
             attribute_name,
-            factory=SysAttributeGetter(
-                attribute_name=attribute_name,
-                mainstream_value=mainstream_value,
+            metafactory=lambda: SysAttributeGetter(
+                attribute_name=attribute_name,  # noqa: B023
+                mainstream_value=mainstream_value,  # noqa: B023
                 stash=stash,
             ),
         )

@@ -355,7 +355,7 @@ def peek_or_inject(  # noqa: PLR0913
     scope: Locals,
     alias: str,
     *,
-    factory: Callable[[], Object_co] | Callable[[Locals], Object_co],
+    metafactory: Callable[[], Callable[[], Object_co] | Callable[[Locals], Object_co]],
     pass_scope: bool = False,
     cache: bool = False,
     cache_per_alias: bool = False,
@@ -376,7 +376,7 @@ def peek_or_inject(  # noqa: PLR0913
             return next(
                 iter(
                     Injection(
-                        actual_factory=factory,
+                        actual_factory=metafactory(),
                         pass_scope=pass_scope,
                         cache=cache,
                         cache_per_alias=cache_per_alias,
