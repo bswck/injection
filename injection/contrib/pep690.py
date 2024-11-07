@@ -89,7 +89,7 @@ class DynamicSysAttribute:
 
 
 @dataclass
-class InjectedImportFunction:
+class LazyImportFunction:
     modules_affected: set[str] = field(default_factory=set)
 
     def __call__(self, *args: Any) -> Any:
@@ -131,19 +131,18 @@ def lazy_imports(
         ).__inject__()
 
     frame = get_frame(stack_offset)
-    if not isinstance(
-        import_function := frame.f_builtins.get("__import__"),
-        InjectedImportFunction,
-    ):
-        frame.f_builtins["__import__"] = import_function = InjectedImportFunction()
+    builtins = frame.f_builtins
+
+    if not isinstance(import_fn := builtins.get("__import__"), LazyImportFunction):
+        builtins["__import__"] = import_fn = LazyImportFunction()
 
     if module_name is None:
         try:
-            module_name = frame.f_locals["__name__"]
+            module_name = frame.f_globals["__name__"]
         except KeyError as e:
             msg = "cannot retrieve callee module `__name__`"
             raise ValueError(msg) from e
 
-    import_function.modules_affected.add(module_name)
+    import_fn.modules_affected.add(module_name)
 
     yield
