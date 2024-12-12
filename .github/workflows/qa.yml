@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+        version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14-dev']
     steps:
     - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938
     - uses: astral-sh/setup-uv@023eb7875fa1caa15814da58d1df7350f8fb1fd9
