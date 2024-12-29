@@ -25,6 +25,10 @@ jobs:
     - uses: astral-sh/setup-uv@023eb7875fa1caa15814da58d1df7350f8fb1fd9
       with:
         enable-cache: true
+    - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
+      if: ${{ matrix.version == '3.14' }}
+      with:
+        python-version: '3.14.0-alpha.3'
     - name: Install
       run: uv sync --frozen --python ${{matrix.version}}
     - name: Lint
