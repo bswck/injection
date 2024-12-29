@@ -28,8 +28,8 @@ if TYPE_CHECKING:
 
 __all__ = (
     "EarlyObject",
-    "InjectionKey",
     "Injection",
+    "InjectionKey",
     "ObjectState",
     "inject",
     "lenient_recursion_guard",
@@ -45,7 +45,7 @@ peeked_early_var: ContextVar[EarlyObject[Any]] = ContextVar("peeked_early")
 
 
 class InjectionKey(str):
-    __slots__ = ("origin", "hash", "reset", "early")
+    __slots__ = ("early", "hash", "origin", "reset")
 
     def __init__(self, alias: str, early: EarlyObject[object]) -> None:
         self.origin = alias

@@ -8,16 +8,14 @@ description = "Super-easy lazy importing in Python."
 license = "MIT"
 version = "1.0.0"
 readme = "README.md"
-packages = [{ include = "injection/" }]
-homepage = "https://github.com/bswck/injection"
 authors = [{ name = "bswck", email = "bartoszpiotrslawecki@gmail.com" }]
 requires-python = ">=3.9"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "mypy>=1.12.0",
     "coverage>=7.6.3",
-    "ruff==0.6.8",
+    "ruff==0.8.4",
     "pytest>=8.3.3",
     "covdefaults>=2.3.0",
     "pre-commit>=4.0.1",
@@ -28,14 +26,6 @@ dev-dependencies = [
 # To discuss the presented rationales, contact the author (bswck).
 select = ["ALL"]
 ignore = [
-    # Description: Missing type annotation for self in method
-    # Rationale: It is mostly redundant, as is for ANN102.
-    "ANN101",
-
-    # Description: Missing type annotation for cls in method
-    # Rationale: It is mostly redundant, as is for ANN101.
-    "ANN102",
-
     # Description: Dynamically typed expressions (typing.Any) are disallowed
     # Rationale:
     #  We use Any to allow user to constrain return types of our functions on their own.
@@ -66,7 +56,7 @@ ignore = [
 
     # Description: Move import into a type-checking block (etc.)
     # Rationale: False negatives for Pydantic models.
-    "TCH",
+    "TC",
 
     # Description: File is part of an implicit namespace package. Add an `__init__.py`
     # Rationale: Implicit namespace packages are a feature
